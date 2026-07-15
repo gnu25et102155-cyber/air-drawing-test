@@ -1,0 +1,30 @@
+Create a single-file, self-contained web application (HTML, CSS, and JavaScript) named "Wide Multi-Gesture Radium Canvas" that allows users to draw in the air using their webcam and hand gestures. 
+
+### Technology Stack
+- Frontend: Vanilla HTML5, CSS3, and JavaScript.
+- AI Tracking: Use MediaPipe Hands and Camera utilities via CDN:
+  - https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js
+  - https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js
+
+### UI & Styling (CSS)
+- Background: Pitch black (#080808) with a modern, centered dashboard layout.
+- Container: A fixed 1024x768px rounded container holding the webcam video and a canvas layered precisely on top. Both elements must be horizontally mirrored (scaleX(-1)) for an intuitive user experience.
+- Video Filter: Give the webcam feed a vibrant look by modifying opacity (0.65), brightness (1.4), contrast (1.25), and saturation (1.4).
+- Control Bar: A floating, blurred glassmorphism menu bar at the top containing:
+  - A "Radium Palette" color picker with neon presets (Neon Green #39FF14, Cyan #00FFFF, Magenta #FF00FF, Yellow #FFFF00).
+  - A brush size range slider (6px to 60px).
+  - A "Clear Canvas" button with a red neon hover glow.
+  - A dynamic "Status Panel" pill text indicating the active mode with matching color accents.
+
+### Core Visual Features (JavaScript Canvas)
+- Ambient Effects: Continuously animate up to 60 flickering, diamond-shaped neon glitter particles drifting subtly in the background layer.
+- Brush Glow: In drawing mode, lines should look like neon lights using canvas shadow attributes (`shadowBlur`, `shadowColor`) and `globalCompositeOperation = 'screen'` to make overlapping strokes look bright and radioactive.
+
+### Gesture Control Logic (MediaPipe)
+Process the first detected hand tracking the Index Finger Tip (Landmark 8) to map coordinates onto the canvas. Implement the following state machine based on finger extensions:
+1. ☝ Draw Mode (Index finger extended; Middle, Ring, Pinky down): Draw continuous neon lines using the selected color and brush size. Ensure proper tracking vectors so lines don't break or jump erratically.
+2. ✌ Laser Guide Mode (Index and Middle extended; Ring and Pinky down): Do not draw lines. Instead, project a subtle white dashed crosshair alignment grid (X and Y axes) intersecting at the finger tip. Reset the drawing vectors to avoid trailing lines.
+3. ✋ Erase Mode (All 4 fingers fully extended): Act as an eraser using `globalCompositeOperation = 'destination-out'`. Display a circular dashed red boundaries indicator tracking the hand to show the eraser's radius.
+4. ✊ Paused Mode (All fingers closed/fist): Cease all drawing and tracking updates.
+
+Ensure the MediaPipe model initializes seamlessly with a minDetectionConfidence of 0.75, showing a "Loading AI..." status that flips to "Ready" once the camera feed kicks off.

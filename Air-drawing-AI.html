@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wide Multi-Gesture Radium Canvas</title>
+    
+    <!-- MediaPipe Links -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #080808;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #ffffff;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        #container {
+            position: relative;
+            width: 1024px;
+            height: 768px;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.9), 0 0 25px rgba(57, 255, 20, 0.15);
+            background: #000;
+        }
+
+        /* Vibrant, brightened background video feed */
+        #webcam {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            z-index: 1;
+            opacity: 0.65; 
+            filter: brightness(1.4) contrast(1.25) saturate(1.4);
+        }
+
+        /* Front-facing active canvas layer */
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            transform: scaleX(-1);
+        }
+
+        /* Top Controls Menu Bar */
+        #controls {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+            background: rgba(15, 15, 15, 0.9);
+            padding: 10px 35px;
+            border-radius: 40px;
+            margin-bottom: 15px;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            z-index: 10;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #8e8e93;
+            font-weight: 700;
+        }
+
+        .color-presets {
+            display: flex;
+            gap: 10px;
+        }
+
+        .color-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .color-btn.active {
+            border-color: #ffffff;
+            transform: scale(1.15);
+            box-shadow: 0 0 12px currentColor;
+        }
+
+        input[type="range"] {
+            accent-color: #39FF14;
+            cursor: pointer;
+            width: 120px;
+        }
+
+        #clearBtn {
+            background: rgba(255, 7, 58, 0.15);
+            color: #FF073A;
+            border: 1px solid rgba(255, 7, 58, 0.4);
+            padding: 8px 18px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        #clearBtn:hover {
+            background: #FF073A;
+            color: #ffffff;
+            box-shadow: 0 0 15px rgba(255, 7, 58, 0.5);
+        }
+
+        #status-panel {
+            font-weight: 700;
+            font-size: 0.85rem;
+            min-width: 140px;
+            text-align: center;
+            padding: 6px 16px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-draw { color: #39FF14; background: rgba(57, 255, 20, 0.15); }
+        .status-twofinger { color: #ffffff; background: rgba(255, 255, 255, 0.15); box-shadow: 0 0 10px rgba(255, 255, 255, 0.2); }
+        .status-erase { color: #FF073A; background: rgba(255, 7, 58, 0.15); }
+        .status-pause { color: #FFDF00; background: rgba(255, 223, 0, 0.15); }
+        .status-loading { color: #ffffff; }
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <div class="control-group">
+            <label>Radium Palette</label>
+            <div class="color-presets">
+                <button class="color-btn active" style="background: #39FF14; color: #39FF14;" data-color="#39FF14"></button>
+                <button class="color-btn" style="background: #00FFFF; color: #00FFFF;" data-color="#00FFFF"></button>
+                <button class="color-btn" style="background: #FF00FF; color: #FF00FF;" data-color="#FF00FF"></button>
+                <button class="color-btn" style="background: #FFFF00; color: #FFFF00;" data-color="#FFFF00"></button>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label for="brushSize">Size</label>
+            <input type="range" id="brushSize" min="6" max="60" value="18">
+        </div>
+
+        <button id="clearBtn">Clear Canvas</button>
+
+        <div id="status-panel" class="status-loading">Loading AI...</div>
+    </div>
+
+    <div id="container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="canvas" width="1024" height="768"></canvas>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const brushSizeSlider = document.getElementById('brushSize');
+        const statusPanel = document.getElementById('status-panel');
+        const colorButtons = document.querySelectorAll('.color-btn');
+        const clearBtn = document.getElementById('clearBtn');
+
+        let selectedColor = '#39FF14'; 
+        let lastX = null;
+        let lastY = null;
+        let currentMode = 'pause'; 
+
+        // Glitter Variables
+        const glitters = [];
+        const glitterColors = ['#39FF14', '#00FFFF', '#FF00FF', '#FFFF00', '#ffffff'];
+
+        function createGlitter() {
+            if (glitters.length < 60) {
+                glitters.push({
+                    x: Math.random() * canvasElement.width,
+                    y: Math.random() * canvasElement.height,
+                    size: Math.random() * 3 + 1,
+                    color: glitterColors[Math.floor(Math.random() * glitterColors.length)],
+                    alpha: Math.random(),
+                    speed: Math.random() * 0.02 + 0.01
+                });
+            }
+        }
+
+        function updateAndDrawGlitters() {
+            createGlitter();
+            glitters.forEach((g) => {
+                g.alpha += g.speed;
+                if (g.alpha > 1 || g.alpha < 0) g.speed = -g.speed;
+                if (g.alpha <= 0) {
+                    g.x = Math.random() * canvasElement.width;
+                    g.y = Math.random() * canvasElement.height;
+                    g.alpha = 0;
+                    g.speed = Math.random() * 0.02 + 0.01;
+                }
+                canvasCtx.save();
+                canvasCtx.globalAlpha = g.alpha;
+                canvasCtx.shadowBlur = 8;
+                canvasCtx.shadowColor = g.color;
+                canvasCtx.fillStyle = g.color;
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(g.x, g.y - g.size);
+                canvasCtx.lineTo(g.x + g.size, g.y);
+                canvasCtx.lineTo(g.x, g.y + g.size);
+                canvasCtx.lineTo(g.x - g.size, g.y);
+                canvasCtx.closePath();
+                canvasCtx.fill();
+                canvasCtx.restore();
+            });
+        }
+
+        colorButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                colorButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                selectedColor = btn.getAttribute('data-color');
+            });
+        });
+
+        const drawingCanvas = document.createElement('canvas');
+        drawingCanvas.width = 1024;
+        drawingCanvas.height = 768;
+        const drawingCtx = drawingCanvas.getContext('2d');
+
+        clearBtn.addEventListener('click', () => {
+            drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+        });
+
+        function onResults(results) {
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            updateAndDrawGlitters();
+            canvasCtx.drawImage(drawingCanvas, 0, 0);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Track Index Tip (Landmark 8)
+                const indexTip = landmarks[8];
+                const x = indexTip.x * canvasElement.width;
+                const y = indexTip.y * canvasElement.height;
+
+                // State Check of individual fingers
+                const isIndexExtended = landmarks[8].y < landmarks[6].y;
+                const isMiddleExtended = landmarks[12].y < landmarks[10].y;
+                const isRingExtended = landmarks[16].y < landmarks[14].y;
+                const isPinkyExtended = landmarks[20].y < landmarks[18].y;
+
+                // Mode Selector Logic
+                if (isIndexExtended && isMiddleExtended && isRingExtended && isPinkyExtended) {
+                    currentMode = 'erase';
+                    statusPanel.textContent = "✋ Erase Mode";
+                    statusPanel.className = "status-erase";
+                } else if (isIndexExtended && isMiddleExtended && !isRingExtended && !isPinkyExtended) {
+                    // NEW: TWO FINGERS EXTENDED MODE
+                    currentMode = 'twofinger';
+                    statusPanel.textContent = "✌ Laser Guide";
+                    statusPanel.className = "status-twofinger";
+                } else if (isIndexExtended && !isMiddleExtended && !isRingExtended) {
+                    currentMode = 'draw';
+                    statusPanel.textContent = "☝ Draw Mode";
+                    statusPanel.className = "status-draw";
+                } else if (!isIndexExtended && !isMiddleExtended && !isRingExtended && !isPinkyExtended) {
+                    currentMode = 'pause';
+                    statusPanel.textContent = "✊ Paused";
+                    statusPanel.className = "status-pause";
+                }
+
+                const eraserRadius = brushSizeSlider.value * 4.5;
+
+                if (currentMode === 'draw') {
+                    if (lastX !== null && lastY !== null) {
+                        drawingCtx.save();
+                        drawingCtx.globalCompositeOperation = 'screen'; 
+                        drawingCtx.beginPath();
+                        drawingCtx.moveTo(lastX, lastY);
+                        drawingCtx.lineTo(x, y);
+                        drawingCtx.strokeStyle = selectedColor;
+                        drawingCtx.lineWidth = brushSizeSlider.value;
+                        drawingCtx.lineCap = 'round';
+                        drawingCtx.lineJoin = 'round';
+                        drawingCtx.shadowBlur = brushSizeSlider.value * 1.3;
+                        drawingCtx.shadowColor = selectedColor;
+                        drawingCtx.stroke();
+                        drawingCtx.restore();
+                    }
+                    lastX = x;
+                    lastY = y;
+                } else if (currentMode === 'twofinger') {
+                    // TWO-FINGER GESTURE ACTION: Draw a precise white target grid alignment laser
+                    canvasCtx.save();
+                    canvasCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                    canvasCtx.lineWidth = 1;
+                    canvasCtx.setLineDash([4, 4]);
+                    
+                    // X Axis crosshair
+                    canvasCtx.beginPath();
+                    canvasCtx.moveTo(0, y);
+                    canvasCtx.lineTo(canvasElement.width, y);
+                    canvasCtx.stroke();
+                    
+                    // Y Axis crosshair
+                    canvasCtx.beginPath();
+                    canvasCtx.moveTo(x, 0);
+                    canvasCtx.lineTo(x, canvasElement.height);
+                    canvasCtx.stroke();
+                    canvasCtx.restore();
+
+                    // Keep vectors unlinked so it doesn't leave lines behind when returning to draw mode
+                    lastX = null;
+                    lastY = null;
+                } else if (currentMode === 'erase') {
+                    drawingCtx.save();
+                    drawingCtx.globalCompositeOperation = 'destination-out';
+                    drawingCtx.beginPath();
+                    drawingCtx.arc(x, y, eraserRadius, 0, Math.PI * 2);
+                    drawingCtx.fill();
+                    drawingCtx.restore();
+                    
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(x, y, eraserRadius, 0, Math.PI * 2);
+                    canvasCtx.strokeStyle = 'rgba(255, 7, 58, 0.85)';
+                    canvasCtx.lineWidth = 4;
+                    canvasCtx.setLineDash([10, 10]);
+                    canvasCtx.stroke();
+                    
+                    lastX = null;
+                    lastY = null;
+                } else {
+                    lastX = null;
+                    lastY = null;
+                }
+
+                // Custom UI tracking pointers
+                if (currentMode !== 'erase') {
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(x, y, currentMode === 'twofinger' ? 10 : 7, 0, Math.PI * 2);
+                    canvasCtx.fillStyle = currentMode === 'draw' ? selectedColor : '#ffffff';
+                    canvasCtx.shadowBlur = 15;
+                    canvasCtx.shadowColor = canvasCtx.fillStyle;
+                    canvasCtx.fill();
+                }
+            } else {
+                lastX = null;
+                lastY = null;
+            }
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.75,
+            minTrackingConfidence: 0.8
+        });
+
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({ image: videoElement });
+            },
+            width: 1024,
+            height: 768
+        });
+        
+        camera.start().then(() => {
+            statusPanel.textContent = "✊ Ready";
+            statusPanel.className = "status-pause";
+        });
+    </script>
+</body>
+</html>
